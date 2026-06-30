@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { getDocs } from "firebase/firestore";
 import { useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp, Timestamp , deleteDoc,doc,} from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, Timestamp , deleteDoc,doc,updateDoc,} from "firebase/firestore";
 
 type AIResult = {
   riskScore: number;
@@ -15,8 +15,11 @@ type AIResult = {
 type Deadline = {
   id: string;
   title: string;
+  description?: string;
   deadline: string;
+  hours: string;
   aiResult: AIResult;
+  completed?: boolean;
 };
 
 export default function Home() {
@@ -28,6 +31,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [email, setEmail] = useState("");
+  const [recoveryPlans, setRecoveryPlans] = useState<{ [id: string]: any }>({});
+  const [recoveryLoading, setRecoveryLoading] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     try {
@@ -73,8 +78,9 @@ export default function Home() {
                  email,
                 aiResult: parsed,
                createdAt: serverTimestamp(),
-                reminderTime: Timestamp.fromDate(reminderDate),   // seedha yahan use karo
-               reminderSent: false
+                reminderTime: Timestamp.fromDate(reminderDate),   
+               reminderSent: false,
+              completed: false,
 });
 await fetchDeadlines();
 console.log("Saved successfully!");
@@ -113,6 +119,46 @@ const handleDelete = async (id: string) => {
     alert("Failed to delete deadline.");
   }
 }; 
+const handleToggleComplete = async (id: string, current: boolean) => {
+  await updateDoc(doc(db, "deadlines", id), { completed: !current });
+  setDeadlines((prev) =>
+    prev.map((item) => (item.id === id ? { ...item, completed: !current } : item))
+  );
+};
+
+const isMissed = (item: Deadline) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const deadlineDate = new Date(item.deadline);
+  return !item.completed && deadlineDate < today;
+};
+
+const handleGenerateRecovery = async (item: Deadline) => {
+  try {
+    setRecoveryLoading(item.id);
+    const response = await fetch("/api/recovery-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: item.title,
+        description: item.description,
+        deadline: item.deadline,
+        hours: item.hours,
+        riskScore: item.aiResult.riskScore,
+        riskLevel: item.aiResult.riskLevel,
+      }),
+    });
+    const data = await response.json();
+    const cleaned = data.data.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    setRecoveryPlans((prev) => ({ ...prev, [item.id]: parsed }));
+  } catch (err) {
+    console.error(err);
+    alert("Failed to generate recovery plan.");
+  } finally {
+    setRecoveryLoading(null);
+  }
+};
 
 
 
@@ -316,55 +362,104 @@ const handleDelete = async (id: string) => {
     key={item.id}
     className="rounded-xl border border-slate-700 bg-slate-900 p-5"
   >
-    <div className="mb-4 flex justify-end">
-      <button
-        onClick={() => handleDelete(item.id)}
-        className="rounded-lg bg-red-600 px-3 py-1 text-sm hover:bg-red-700"
-      >
-        🗑 Delete
-      </button>
-    </div>
+    <div className="mb-4 flex justify-end gap-2">
+  <button
+    onClick={() => handleToggleComplete(item.id, !!item.completed)}
+    className="rounded-lg bg-emerald-600 px-3 py-1 text-sm hover:bg-emerald-700"
+  >
+    {item.completed ? "↩ Mark Incomplete" : "✅ Mark Complete"}
+  </button>
 
-    <h3 className="text-xl font-semibold">
-      {item.title}
-    </h3>
+  {isMissed(item) && (
+    <button
+      onClick={() => handleGenerateRecovery(item)}
+      disabled={recoveryLoading === item.id}
+      className="rounded-lg bg-orange-600 px-3 py-1 text-sm hover:bg-orange-700 disabled:opacity-50"
+    >
+      {recoveryLoading === item.id ? "🤖 Generating..." : "🚨 Recovery Plan"}
+    </button>
+  )}
 
-    <p className="mt-2 text-slate-400">
-      📅 {item.deadline}
+  <button
+    onClick={() => handleDelete(item.id)}
+    className="rounded-lg bg-red-600 px-3 py-1 text-sm hover:bg-red-700"
+  >
+    🗑 Delete
+  </button>
+</div>
+
+<h3 className="text-xl font-semibold">
+  {item.title}
+</h3>
+
+<p className="mt-2 text-slate-400">
+  📅 {item.deadline}
+</p>
+
+<div className="mt-3 flex items-center justify-between">
+  <span className="rounded-full bg-red-500/20 px-3 py-1 text-red-300">
+    Risk: {item.aiResult.riskScore}%
+  </span>
+
+  <span className="text-violet-300">
+    {item.aiResult.riskLevel}
+  </span>
+</div>
+
+<div className="mt-4">
+  <div className="h-2 w-full rounded-full bg-slate-700">
+    <div
+      className={`h-2 rounded-full ${
+        item.aiResult.riskScore >= 70
+          ? "bg-red-500"
+          : item.aiResult.riskScore >= 40
+          ? "bg-yellow-400"
+          : "bg-green-500"
+      }`}
+      style={{ width: `${item.aiResult.riskScore}%` }}
+    />
+  </div>
+</div>
+
+{recoveryPlans[item.id] && (
+  <div className="mt-5 rounded-xl border border-orange-500/30 bg-orange-950/20 p-4">
+    <h4 className="text-orange-400 font-semibold">
+      🚨 Recovery Plan — {recoveryPlans[item.id].severity}
+    </h4>
+    <p className="mt-2 text-sm text-slate-300">
+      {recoveryPlans[item.id].situationSummary}
     </p>
 
-    <div className="mt-3 flex items-center justify-between">
-      <span className="rounded-full bg-red-500/20 px-3 py-1 text-red-300">
-        Risk: {item.aiResult.riskScore}%
-      </span>
+    <p className="mt-3 text-sm font-semibold text-orange-300">Immediate Actions:</p>
+    <ul className="mt-1 space-y-1 text-sm text-slate-300">
+      {recoveryPlans[item.id].immediateActions.map((a: string, i: number) => (
+        <li key={i}>• {a}</li>
+      ))}
+    </ul>
 
-      <span className="text-violet-300">
-        {item.aiResult.riskLevel}
-      </span>
-    </div>
+    <p className="mt-3 text-sm font-semibold text-orange-300">Revised Plan:</p>
+    <ul className="mt-1 space-y-1 text-sm text-slate-300">
+      {recoveryPlans[item.id].revisedPlan.map((a: string, i: number) => (
+        <li key={i}>• {a}</li>
+      ))}
+    </ul>
 
-    <div className="mt-4">
-      <div className="h-2 w-full rounded-full bg-slate-700">
-        <div
-          className={`h-2 rounded-full ${
-            item.aiResult.riskScore >= 70
-              ? "bg-red-500"
-              : item.aiResult.riskScore >= 40
-              ? "bg-yellow-400"
-              : "bg-green-500"
-          }`}
-          style={{ width: `${item.aiResult.riskScore}%` }}
-        />
-      </div>
-    </div>
+    <p className="mt-3 text-sm text-slate-400 italic">
+      💬 {recoveryPlans[item.id].communicationAdvice}
+    </p>
   </div>
+)}
+
+</div> 
+
+  
   
 ))} 
 </div>
 
-        </div>
+ </div>
 
-      </div>
-    </main>
+  </div>
+  </main>
   );
 }
