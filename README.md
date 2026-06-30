@@ -73,9 +73,7 @@ Firestore is updated (reminderSent = true) to prevent duplicates
 
 ---
 
-## 🖼️ Screenshots
 
-> _Add screenshots of the dashboard, the AI plan output, and a sample reminder email here before submission._
 
 ---
 
