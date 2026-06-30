@@ -3,7 +3,7 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBlv989LQzKQFNPJhHkD836atGA4jm2lTU",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: "deadline-guardian-ai-8d2a8.firebaseapp.com",
   projectId: "deadline-guardian-ai-8d2a8",
   storageBucket: "deadline-guardian-ai-8d2a8.firebasestorage.app",
